@@ -37,9 +37,54 @@ app.get('/', (req, res) => res.json({ ok: true, service: 'redeem-server' }));
 // ต้องรู้ชื่อตารางและคอลัมน์ที่เก็บค่าพวกนี้ใน Supabase ก่อน จึงจะเขียนส่วนนี้ได้ถูกต้อง
 // ระหว่างที่ยังไม่เชื่อม ฟังก์ชันนี้จะโยน error และโค้ดที่ใช้ไปจะถูกย้อนคืนอัตโนมัติ
 // ---------------------------------------------------------------------------
+
+
+
+
 async function addPointsForUser(userId, amount) {
-  throw new Error('ยังไม่ได้เชื่อมระบบบวกแต้ม');
+  // 1. ดึงข้อมูลแต้มปัจจุบันของผู้ใช้จากตาราง profiles (หรือเปลี่ยนชื่อตารางตามที่คุณใช้งานจริง)
+  const { data: profile, error: fetchErr } = await supabaseAdmin
+    .from('profiles')
+    .select('week_points, total_points, week_expires_at')
+    .eq('id', userId)
+    .single();
+
+  if (fetchErr) throw fetchErr;
+
+  const now = new Date();
+  let currentWeek = profile.week_points || 0;
+  let currentTotal = profile.total_points || 0;
+  let weekExpiresAt = profile.week_expires_at ? new Date(profile.week_expires_at) : null;
+
+  // ถ้ารายสัปดาห์หมดอายุแล้ว หรือยังไม่มีวันหมดอายุ ให้รีเซ็ตสัปดาห์ใหม่และนับไปอีก 7 วัน
+  if (!weekExpiresAt || weekExpiresAt <= now) {
+    currentWeek = 0;
+    weekExpiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  }
+
+  // 2. คำนวณแต้มใหม่
+  const newWeekPoints = currentWeek + amount;
+  const newTotalPoints = currentTotal + amount;
+
+  // 3. บันทึกกลับลงฐานข้อมูล Supabase
+  const { error: updateErr } = await supabaseAdmin
+    .from('profiles')
+    .update({
+      week_points: newWeekPoints,
+      total_points: newTotalPoints,
+      week_expires_at: weekExpiresAt.toISOString()
+    })
+    .eq('id', userId);
+
+  if (updateErr) throw updateErr;
 }
+
+
+
+
+
+
+
 
 // กันเดาโค้ด: ลองได้ 5 ครั้งต่อนาทีต่อคน
 const attempts = new Map(); // userId -> { count, resetAt }
